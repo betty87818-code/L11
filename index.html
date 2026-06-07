@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>枯木是大飯店 - 森林排位挑戰</title>
+  <!-- 載入 Tailwind CSS 框架 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 載入 React 核心庫 -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- 載入 Babel (用來在瀏覽器編譯 React 語法) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <style>
+    /* 自訂進場動畫 */
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes zoomIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @keyframes slideInUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    
+    .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+    .animate-zoom-in { animation: zoomIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    .animate-slide-up { animation: slideInUp 0.4s ease-out forwards; }
+    
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, '微軟正黑體', sans-serif; }
+  </style>
+</head>
+<body>
+  <!-- React 應用程式的掛載點 -->
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // --- 圖示元件 (取代原本的 Lucide 圖示) ---
+    const Icon = ({ name, size = 24, className = "" }) => {
+      const icons = {
+        Play: '<polygon points="5 3 19 12 5 21 5 3"></polygon>',
+        Users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>',
+        Crown: '<polygon points="2 4 5 16 12 11 19 16 22 4 2 4"></polygon><polyline points="2 20 22 20"></polyline>',
+        Volume2: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>',
+        VolumeX: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line>',
+        Star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>',
+        ArrowRight: '<line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline>',
+        RotateCcw: '<polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>',
+        CheckCircle2: '<circle cx="12" cy="12" r="10"></circle><polyline points="9 12 11 14 15 10"></polyline>',
+        XCircle: '<circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>'
+      };
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} dangerouslySetInnerHTML={{ __html: icons[name] }} />
+      );
+    };
+
+    // --- 音效系統 (網頁合成器，免檔案) ---
+    class SoundFX {
+      constructor() {
+        this.ctx = null;
+        this.enabled = true;
+      }
+      init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+      }
+      playTone(freq, type, duration, vol = 0.1) {
+        if (!this.enabled || !this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+      }
+      playClick() { this.init(); this.playTone(600, 'sine', 0.1, 0.05); }
+      playCorrect() { 
+        this.init(); 
+        this.playTone(523.25, 'sine', 0.1, 0.1); 
+        setTimeout(() => this.playTone(659.25, 'sine', 0.1, 0.1), 100); 
+        setTimeout(() => this.playTone(783.99, 'sine', 0.2, 0.1), 200); 
+      }
+      playWrong() {
+        this.init();
+        this.playTone(150, 'sawtooth', 0.3, 0.1);
+        setTimeout(() => this.playTone(100, 'sawtooth', 0.3, 0.1), 150);
+      }
+      playVictory() {
+        this.init();
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, i) => {
+          setTimeout(() => this.playTone(freq, 'square', 0.2, 0.1), i * 150);
+        });
+        setTimeout(() => this.playTone(1046.50, 'square', 0.6, 0.1), notes.length * 150);
+      }
+    }
+    const sfx = new SoundFX();
+
+    // --- 題目資料 ---
+    const lessonQuestions = [
+      { q: "作者帶孩子們進入林子時，看到一棵枯木，作者向孩子們提出什麼問題？", options: ["這棵枯木有幾歲了？", "枯木是死的，還是活的？", "我們要把這棵枯木帶回家嗎？", "這棵樹為什麼會變成枯木？"], answer: "枯木是死的，還是活的？" },
+      { q: "孩子們剛開始看到這棵枯木，為什麼認為它已經死掉了？", options: ["因為它被蟲蛀滿了洞", "因為它是倒在地上", "因為葉子掉光，樹皮脫落", "因為作者告訴他們樹死了"], answer: "因為葉子掉光，樹皮脫落" },
+      { q: "當作者問枯木是不是可以當柴火或做家具時，孩子們認為現代人對枯木的想法是什麼？", options: ["現代人很需要枯木當柴火", "現代人大多不用柴火，也不適合做家具", "枯木做出來的家具很受歡迎", "枯木可以賣很多錢"], answer: "現代人大多不用柴火，也不適合做家具" },
+      { q: "喜歡生物的小孩提出，哪一種鳥類喜歡在枯木上「啄洞築巢」？", options: ["麻雀", "燕子", "老鷹", "五色鳥"], answer: "五色鳥" },
+      { q: "除了鳥類，還有哪一種植物或昆蟲，會在枯木上生長或寄居？", options: ["蘭花和蝴蝶", "菇類和天牛的幼蟲", "牽牛花和蜜蜂", "青苔和螞蟻"], answer: "菇類和天牛的幼蟲" },
+      { q: "經過討論後，作者和孩子們對於「枯木」得到了什麼結論？", options: ["枯木是危險的廢棄物", "枯木是可以用來蓋房子的材料", "枯木是森林裡的大飯店", "枯木應該被馬上清理掉"], answer: "枯木是森林裡的大飯店" },
+      { q: "作者告訴孩子們，就像飯店有好幾種，森林裡的枯木也分為幾種類型？", options: ["兩種", "三種", "四種", "五種"], answer: "四種" },
+      { q: "葉子掉光、樹皮脫落，但依然「站著」的枯木稱為什麼？", options: ["立木", "倒木", "腐木", "沉木"], answer: "立木" },
+      { q: "已經「躺在地上」的枯木稱為什麼？", options: ["立木", "倒木", "腐木", "沉木"], answer: "倒木" },
+      { q: "倒下許久，開始出現腐爛現象的枯木稱為什麼？", options: ["立木", "倒木", "腐木", "沉木"], answer: "腐木" },
+      { q: "長時間「半埋在泥土裡」的枯木稱為什麼？", options: ["立木", "倒木", "腐木", "沉木"], answer: "沉木" },
+      { q: "不同的枯木會吸引不同的動物，請問「獨角仙的幼蟲」特別喜愛哪一種枯木？", options: ["立木", "倒木", "腐木", "沉木"], answer: "沉木" },
+      { q: "作者提醒，一棵「活的樹」如果葉子掉了或樹枝斷了，會怎麼樣？", options: ["會馬上死掉", "需要人們澆水才能活", "還有重新冒出的機會", "會立刻變成枯木"], answer: "還有重新冒出的機會" },
+      { q: "一棵「枯木」如果被破壞了，會有什麼嚴重的後果？", options: ["它會慢慢自己復原", "它就無法復原，動物會失去安全的家", "可以換一個新的枯木過來", "森林會馬上失去水分"], answer: "它就無法復原，動物會失去安全的家" },
+      { q: "面對這棵枯木，孩子們最後明白，在完全腐化以前，枯木不僅是大飯店，而且它是怎樣的？", options: ["它是毫無用處的", "它是在沉睡的", "它是很脆弱的", "它是「活著」的"], answer: "它是「活著」的" }
+    ];
+
+    const radicalData = [
+      { char: '孤', rad: '子', bad: ['瓜', '木', '人'] },
+      { char: '零', rad: '雨', bad: ['令', '水', '一'] },
+      { char: '枯', rad: '木', bad: ['古', '十', '口'] },
+      { char: '柴', rad: '木', bad: ['此', '匕', '止'] },
+      { char: '代', rad: '人', bad: ['弋', '一', '十'] },
+      { char: '適', rad: '辵', bad: ['广', '古', '口'] },
+      { char: '洞', rad: '水', bad: ['同', '口', '冂'] },
+      { char: '築', rad: '竹', bad: ['木', '工', '几'] },
+      { char: '巢', rad: '巛', bad: ['木', '果', '日'] },
+      { char: '菇', rad: '艸', bad: ['姑', '女', '古'] },
+      { char: '腐', rad: '肉', bad: ['广', '付', '寸'] },
+      { char: '沉', rad: '水', bad: ['冗', '冖', '几'] },
+      { char: '斷', rad: '斤', bad: ['米', '絲', '一'] },
+      { char: '僅', rad: '人', bad: ['堇', '土', '廿'] }
+    ];
+
+    const shuffle = (array) => {
+      const newArr = [...array];
+      for (let i = newArr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+      }
+      return newArr;
+    };
+
+    const generateGameQuestions = () => {
+      const selectedRadicals = shuffle(radicalData).slice(0, 5);
+      const radicalQuestions = selectedRadicals.map(item => ({
+        q: `生字挑戰：「${item.char}」的部首是什麼？`,
+        options: shuffle([item.rad + "部", ...item.bad.map(b => b + "部")]),
+        answer: item.rad + "部",
+        isRadical: true
+      }));
+      return [...lessonQuestions, ...radicalQuestions];
+    };
+
+    const getRankInfo = (score) => {
+      if (score === 20) return { title: "🌳 森林守護神", color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-300", desc: "太神啦！你完全懂這座森林的大飯店！" };
+      if (score >= 18) return { title: "🦉 智慧貓頭鷹", color: "text-teal-500", bg: "bg-teal-50 border-teal-300", desc: "非常厲害！幾乎全都答對了！" };
+      if (score >= 15) return { title: "🪲 敏捷獨角仙", color: "text-amber-600", bg: "bg-amber-50 border-amber-300", desc: "表現很棒！課文重點都有記住喔！" };
+      if (score >= 10) return { title: "🐦 活潑五色鳥", color: "text-blue-500", bg: "bg-blue-50 border-blue-300", desc: "繼續加油！多看幾次課文會更熟練！" };
+      return { title: "🍄 新生小蘑菇", color: "text-orange-400", bg: "bg-orange-50 border-orange-200", desc: "沒關係，我們再去探索一次課文吧！" };
+    };
+
+    function App() {
+      const [gameState, setGameState] = useState('home'); 
+      const [playerName, setPlayerName] = useState('');
+      const [questions, setQuestions] = useState([]);
+      const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+      const [score, setScore] = useState(0);
+      const [selectedAnswer, setSelectedAnswer] = useState(null);
+      const [soundEnabled, setSoundEnabled] = useState(true);
+
+      const handleStartGame = (e) => {
+        e.preventDefault();
+        if (!playerName.trim()) return;
+        sfx.playClick();
+        setQuestions(generateGameQuestions());
+        setCurrentQuestionIndex(0);
+        setScore(0);
+        setSelectedAnswer(null);
+        setGameState('playing');
+      };
+
+      const handleAnswerClick = (option) => {
+        if (selectedAnswer) return; 
+        setSelectedAnswer(option);
+        const isCorrect = option === questions[currentQuestionIndex].answer;
+        if (isCorrect) {
+          setScore(score + 1);
+          sfx.playCorrect();
+        } else {
+          sfx.playWrong();
+        }
+      };
+
+      const nextQuestion = () => {
+        sfx.playClick();
+        if (currentQuestionIndex < questions.length - 1) {
+          setCurrentQuestionIndex(currentQuestionIndex + 1);
+          setSelectedAnswer(null);
+        } else {
+          setGameState('end');
+          sfx.playVictory();
+        }
+      };
+
+      const toggleSound = () => {
+        sfx.enabled = !soundEnabled;
+        setSoundEnabled(!soundEnabled);
+        if (!soundEnabled) sfx.playClick();
+      };
+
+      const getButtonClass = (optionText) => {
+        const baseClass = "flex flex-col items-center justify-center p-4 md:p-6 min-h-[120px] text-2xl md:text-3xl rounded-2xl font-bold shadow-[0_6px_0_rgba(0,0,0,0.2)] transition-all duration-200 ";
+        
+        if (!selectedAnswer) {
+          return baseClass + "bg-emerald-600 hover:bg-emerald-500 text-white active:shadow-[0_0px_0_rgba(0,0,0,0.2)] active:translate-y-1";
+        }
+        const isCorrectOption = optionText === questions[currentQuestionIndex].answer;
+        const isSelectedOption = optionText === selectedAnswer;
+
+        if (isCorrectOption) {
+          return baseClass + "bg-green-500 text-white shadow-none translate-y-1 border-4 border-yellow-300 z-10 animate-bounce";
+        } else if (isSelectedOption && !isCorrectOption) {
+          return baseClass + "bg-red-500 text-white opacity-60 shadow-none translate-y-1";
+        } else {
+          return baseClass + "bg-gray-300 text-gray-500 opacity-50 shadow-none translate-y-1";
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-green-50 flex flex-col font-sans selection:bg-emerald-200">
+          {/* Header */}
+          <header className="bg-white p-4 shadow-sm flex justify-between items-center text-emerald-800 border-b-4 border-emerald-200">
+            <div className="text-xl md:text-2xl font-black tracking-widest flex items-center">
+              🌲 第十一課：枯木是大飯店
+            </div>
+            <div className="flex items-center space-x-4">
+              <button onClick={toggleSound} className="p-2 bg-emerald-100 rounded-full text-emerald-700 hover:bg-emerald-200 transition-colors">
+                {soundEnabled ? <Icon name="Volume2" /> : <Icon name="VolumeX" />}
+              </button>
+              {gameState === 'playing' && (
+                <div className="flex space-x-4 text-lg font-bold">
+                  <div className="bg-emerald-100 px-4 py-1 rounded-full text-emerald-700 hidden md:block">
+                    進度: {currentQuestionIndex + 1} / {questions.length}
+                  </div>
+                  <div className="bg-amber-100 px-4 py-1 rounded-full text-amber-600 flex items-center">
+                    <Icon name="Star" className="w-5 h-5 mr-1" /> {score}
+                  </div>
+                </div>
+              )}
+            </div>
+          </header>
+
+          {/* Main Content */}
+          <main className="flex-1 w-full max-w-6xl mx-auto p-4 flex flex-col justify-center">
+            
+            {/* HOME SCREEN */}
+            {gameState === 'home' && (
+              <div className="bg-white rounded-3xl p-10 md:p-16 shadow-2xl text-center animate-zoom-in border-t-8 border-emerald-500">
+                <h1 className="text-5xl md:text-7xl font-black text-emerald-700 mb-6 drop-shadow-sm">
+                  森林探險挑戰賽
+                </h1>
+                <p className="text-xl md:text-2xl text-emerald-600 mb-12 font-bold">
+                  目標：全對 20 題，奪下「森林守護神」稱號！
+                </p>
+                
+                <div className="flex flex-col md:flex-row justify-center items-center gap-6">
+                  <button 
+                    onClick={() => { sfx.playClick(); setGameState('login'); }}
+                    className="w-full md:w-auto flex justify-center items-center bg-emerald-600 text-white text-3xl font-black py-6 px-12 rounded-2xl shadow-[0_8px_0_rgb(4,120,87)] hover:bg-emerald-500 hover:translate-y-1 active:shadow-none active:translate-y-2 transition-all"
+                  >
+                    <Icon name="Users" className="mr-4" size={36} />
+                    點我開始測驗
+                  </button>
+                  
+                  <button 
+                    onClick={() => { sfx.playClick(); setGameState('ranks'); }}
+                    className="w-full md:w-auto flex justify-center items-center bg-amber-500 text-white text-3xl font-black py-6 px-12 rounded-2xl shadow-[0_8px_0_rgb(214,158,46)] hover:bg-amber-400 hover:translate-y-1 active:shadow-none active:translate-y-2 transition-all"
+                  >
+                    <Icon name="Crown" className="mr-4" size={36} />
+                    查看排位階級表
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* LOGIN SCREEN */}
+            {gameState === 'login' && (
+              <div className="bg-white rounded-3xl p-10 md:p-20 shadow-2xl max-w-2xl mx-auto w-full text-center animate-slide-up border-t-8 border-emerald-500">
+                <h2 className="text-4xl font-black text-emerald-800 mb-8">準備進入森林！</h2>
+                <form onSubmit={handleStartGame} className="flex flex-col items-center">
+                  <label className="text-2xl font-bold text-gray-600 mb-4 block">請輸入你的座號或姓名：</label>
+                  <input 
+                    type="text" 
+                    maxLength={10}
+                    required
+                    value={playerName}
+                    onChange={(e) => setPlayerName(e.target.value)}
+                    placeholder="例如：3號 小明"
+                    className="w-full text-center text-3xl p-4 border-4 border-emerald-200 rounded-xl mb-8 focus:outline-none focus:border-emerald-500 transition-colors bg-emerald-50 text-emerald-900"
+                  />
+                  <button 
+                    type="submit"
+                    className="flex items-center bg-emerald-600 text-white text-3xl font-bold py-4 px-12 rounded-full shadow-[0_6px_0_rgb(4,120,87)] hover:bg-emerald-500 hover:translate-y-1 active:shadow-none active:translate-y-2 transition-all"
+                  >
+                    <Icon name="Play" className="mr-2" size={32} />
+                    出發！
+                  </button>
+                </form>
+                <button 
+                  onClick={() => { sfx.playClick(); setGameState('home'); }}
+                  className="mt-8 text-gray-400 hover:text-gray-600 font-bold underline"
+                >
+                  返回首頁
+                </button>
+              </div>
+            )}
+
+            {/* PLAYING SCREEN */}
+            {gameState === 'playing' && questions.length > 0 && (
+              <div className="flex flex-col h-full animate-fade-in duration-300">
+                <div className="w-full bg-emerald-100 h-3 rounded-full mb-6 overflow-hidden">
+                  <div 
+                    className="bg-emerald-500 h-full transition-all duration-500 ease-out"
+                    style={{ width: `${(currentQuestionIndex / questions.length) * 100}%` }}
+                  ></div>
+                </div>
+
+                <div className={`bg-white rounded-3xl p-8 md:p-12 shadow-xl mb-6 text-center border-b-8 min-h-[180px] flex items-center justify-center relative overflow-hidden ${questions[currentQuestionIndex].isRadical ? 'border-amber-300 bg-amber-50' : 'border-emerald-300'}`}>
+                  <h2 className="text-3xl md:text-5xl font-black text-gray-800 leading-tight z-10 relative">
+                    {questions[currentQuestionIndex].isRadical && <span className="block text-amber-600 text-xl md:text-2xl mb-2">✨ 生字魔王題 ✨</span>}
+                    {questions[currentQuestionIndex].q}
+                  </h2>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 flex-1">
+                  {questions[currentQuestionIndex].options.map((option, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleAnswerClick(option)}
+                      className={getButtonClass(option)}
+                      disabled={selectedAnswer !== null}
+                    >
+                      <span className="drop-shadow-sm">{option}</span>
+                      {selectedAnswer && option === questions[currentQuestionIndex].answer && (
+                        <Icon name="CheckCircle2" className="absolute top-4 right-4 text-white opacity-90" size={40} />
+                      )}
+                      {selectedAnswer === option && option !== questions[currentQuestionIndex].answer && (
+                        <Icon name="XCircle" className="absolute top-4 right-4 text-white opacity-90" size={40} />
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                <div className={`mt-8 flex justify-center transition-opacity duration-300 ${selectedAnswer ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                  <button
+                    onClick={nextQuestion}
+                    className="flex items-center bg-gray-800 text-white text-2xl font-bold py-4 px-10 rounded-2xl shadow-[0_6px_0_rgb(31,41,55)] hover:bg-gray-700 hover:translate-y-1 active:translate-y-2 active:shadow-none transition-all"
+                  >
+                    {currentQuestionIndex === questions.length - 1 ? '觀看我的排位' : '下一題'} 
+                    <Icon name="ArrowRight" className="ml-2" size={32} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* END SCREEN */}
+            {gameState === 'end' && (() => {
+              const finalScore = score + (selectedAnswer === questions[currentQuestionIndex].answer ? 1 : 0);
+              const rank = getRankInfo(finalScore);
+              
+              return (
+                <div className="bg-white rounded-3xl p-10 md:p-20 shadow-2xl text-center animate-slide-up border-t-8 border-amber-400 relative overflow-hidden">
+                  <h2 className="text-3xl md:text-4xl font-bold text-gray-500 mb-2">測驗完成，{playerName}！</h2>
+                  <p className="text-xl text-gray-400 mb-8">你的得分：{finalScore} / 20</p>
+                  
+                  <div className={`p-8 rounded-3xl inline-block mb-10 border-4 ${rank.bg} transform hover:scale-105 transition-transform`}>
+                    <p className="text-2xl font-bold text-gray-600 mb-2">獲得排位稱號</p>
+                    <h1 className={`text-5xl md:text-7xl font-black ${rank.color} drop-shadow-md mb-6 whitespace-nowrap`}>
+                      {rank.title}
+                    </h1>
+                    <p className="text-2xl font-bold text-gray-700">{rank.desc}</p>
+                  </div>
+
+                  <div className="flex flex-col md:flex-row justify-center gap-6">
+                    <button 
+                      onClick={() => { sfx.playClick(); setGameState('home'); }}
+                      className="flex justify-center items-center bg-emerald-600 text-white text-2xl font-bold py-4 px-8 rounded-full shadow-[0_6px_0_rgb(4,120,87)] hover:bg-emerald-500 hover:translate-y-1 active:shadow-none active:translate-y-2 transition-all"
+                    >
+                      <Icon name="RotateCcw" className="mr-2" size={32} />
+                      回首頁再戰
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* RANKS EXPLANATION SCREEN */}
+            {gameState === 'ranks' && (
+              <div className="bg-white rounded-3xl p-6 md:p-12 shadow-2xl animate-fade-in h-full flex flex-col border-t-8 border-amber-500">
+                <div className="text-center mb-8 relative">
+                  <h2 className="text-4xl md:text-6xl font-black text-amber-500 drop-shadow-md">
+                    🏆 森林排位階級表 🏆
+                  </h2>
+                  <button 
+                    onClick={() => { sfx.playClick(); setGameState('home'); }}
+                    className="absolute left-0 top-1/2 -translate-y-1/2 bg-gray-100 p-3 rounded-full hover:bg-gray-200 text-gray-600"
+                    title="回首頁"
+                  >
+                    <Icon name="RotateCcw" size={28} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto pr-2 space-y-4 max-w-3xl mx-auto w-full">
+                  {[
+                    { s: 20, t: "🌳 森林守護神", c: "text-emerald-600 bg-emerald-50 border-emerald-300" },
+                    { s: "18-19", t: "🦉 智慧貓頭鷹", c: "text-teal-500 bg-teal-50 border-teal-300" },
+                    { s: "15-17", t: "🪲 敏捷獨角仙", c: "text-amber-600 bg-amber-50 border-amber-300" },
+                    { s: "10-14", t: "🐦 活潑五色鳥", c: "text-blue-500 bg-blue-50 border-blue-300" },
+                    { s: "9分以下", t: "🍄 新生小蘑菇", c: "text-orange-400 bg-orange-50 border-orange-200" }
+                  ].map((rank, idx) => (
+                    <div key={idx} className={`flex items-center justify-between p-6 md:p-8 rounded-2xl border-4 ${rank.c}`}>
+                      <div className="text-3xl md:text-4xl font-black">{rank.t}</div>
+                      <div className="text-2xl md:text-4xl font-bold text-gray-700 bg-white px-6 py-2 rounded-full shadow-sm">
+                        {rank.s} 分
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
